@@ -45,11 +45,18 @@ def materialize(doc: Document, selection: Selection, timezone_name: str) -> Arti
     # Estas expresiones dependen del momento de extracción y no son evidencia editorial.
     if re.search(r"\b(hoy|ayer|mañana|hace\s+\d+)\b", date_block.text, flags=re.IGNORECASE):
         return ArticleFields(**values, original_date_text=date_block.text)
-    parsed = dateparser.parse(
-        date_block.text,
-        languages=["es"],
-        settings={"DATE_ORDER": "DMY", "STRICT_PARSING": True, "RETURN_AS_TIMEZONE_AWARE": False},
-    )
+    date_text = date_block.text.strip()
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}(?:[Tt ].+)?", date_text):
+        try:
+            parsed = datetime.fromisoformat(date_text.replace("Z", "+00:00"))
+        except ValueError:
+            parsed = None
+    else:
+        parsed = dateparser.parse(
+            date_text,
+            languages=["es"],
+            settings={"DATE_ORDER": "DMY", "STRICT_PARSING": True, "RETURN_AS_TIMEZONE_AWARE": False},
+        )
     if parsed is None:
         return ArticleFields(**values, original_date_text=date_block.text)
     zone = ZoneInfo(timezone_name)

@@ -19,7 +19,7 @@ def persist_article_revision(db, delivery: Delivery, now: datetime):
     valid=_complete(fields) and delivery.selection is not None and not delivery.issues and source.enabled and source.validated_revision == source.revision and source.auto_publish
     if valid and not stale and not (current and current.editorial_lock):
         uni=db.get(University,source.university_id)
-        news=current or News(university_id=source.university_id,source_id=source.id,canonical_url=delivery.document.canonical_url,university=uni.name)
+        news=current or News(university_id=source.university_id,source_id=source.id,canonical_url=delivery.document.canonical_url,university=uni.name,created_at=now)
         for key in ("title","content","category","summary","published_at","published_on","date_precision"): setattr(news,key,getattr(fields,key))
         news.source_url=delivery.document.canonical_url; news.content_hash=delivery.document.document_hash; news.last_fetched_at=delivery.document.fetched_at; news.publication_status="published"; news.editorial_lock=False; db.add(news); db.flush(); status="approved"; outcome="published"
     elif stale: outcome="stale"
@@ -43,6 +43,6 @@ def approve_revision(db, revision_id, fields: ArticleFields, *, editorial_lock, 
     if not rev: raise HTTPException(404,"revision_not_found")
     source=db.get(Source,rev.source_id); uni=db.get(University,source.university_id)
     news=db.get(News,rev.news_id) if rev.news_id else db.query(News).filter(News.university_id==source.university_id,News.canonical_url==rev.canonical_url).first()
-    news=news or News(university_id=source.university_id,source_id=source.id,canonical_url=rev.canonical_url,university=uni.name)
+    news=news or News(university_id=source.university_id,source_id=source.id,canonical_url=rev.canonical_url,university=uni.name,created_at=now)
     for key in ("title","content","category","summary","published_at","published_on","date_precision"): setattr(news,key,getattr(fields,key))
     news.source_url=rev.canonical_url; news.content_hash=rev.document_hash; news.publication_status="published"; news.editorial_lock=editorial_lock; db.add(news); db.flush(); rev.news_id=news.id; rev.review_status="approved"; rev.reviewed_at=now; emit_event(db,news,"approved",now); db.commit(); db.refresh(news); return news

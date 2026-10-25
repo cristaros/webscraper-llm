@@ -11,7 +11,7 @@ Estas instrucciones se aplican al repositorio completo. Las instrucciones explí
 ## Reglas del producto
 
 1. El scraping se realiza con Python propio. No introducir ScrapeGraphAI, servicios de scraping por créditos o mecanismos para eludir bloqueos.
-2. El modelo de extracción es exactamente `minimax/minimax-m3:free` por OpenRouter. No cambiarlo por otro modelo, un proveedor de pago o un LLM local sin instrucción explícita del usuario.
+2. El modelo de extracción activo es exactamente `nvidia/nemotron-3.5-super-vl:free` por OpenRouter, autorizado por el usuario el 25-10-2026 tras la baja de `minimax/minimax-m3:free`. No cambiarlo por otro modelo, un proveedor de pago o un LLM local sin nueva instrucción explícita.
 3. El recolector funciona automáticamente en Windows, separado del servidor de la web y API. No poner su scheduler dentro de FastAPI o Astro.
 4. Solo rastrear las universidades, hosts y enlaces configurados. El nombre institucional proviene de la configuración, nunca de una suposición del modelo.
 5. Preservar título, cuerpo y fecha originales con evidencia. La categoría puede ser inferida por el LLM dentro del catálogo. No sustituir la fecha de publicación por la de extracción ni publicar datos ficticios si falla la API.

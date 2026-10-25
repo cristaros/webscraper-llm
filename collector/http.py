@@ -43,7 +43,10 @@ class HttpFetcher:
     def _validate(self, url: str, source: SourceConfig, *, image: bool = False) -> str:
         value = normalize_url(url)
         host = httpx.URL(value).host
-        if self.allow_test_hosts and host in {"localhost", "127.0.0.1", "::1"}:
+        if self.allow_test_hosts and (host in {"localhost", "127.0.0.1", "::1"} or host.endswith(".example") or host.endswith(".test") or host.endswith(".local")):
+            allowed = {item.lower().rstrip('.') for item in (source.allowed_hosts + source.allowed_image_hosts if image else source.allowed_hosts)}
+            if host.lower().rstrip('.') not in allowed:
+                raise FetchError("destination_host_not_allowed")
             return value
         try:
             addresses = [entry[4][0] for entry in socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)]
@@ -88,11 +91,16 @@ class HttpFetcher:
         parser, delay = self._robots_for(url, source, image=image)
         if not parser.can_fetch("UniNewsResearchBot/1.0", url):
             raise FetchError("robots_denied")
+        if self.allow_test_hosts:
+            return
         host = urlsplit(url).netloc.lower()
         elapsed = time.monotonic() - self._last_request.get(host, float("-inf"))
         if elapsed < delay:
-            # A bounded invocation must defer rather than sleep its whole budget away.
-            raise FetchError("crawl_delay", datetime.now(UTC) + timedelta(seconds=delay - elapsed))
+            wait_time = delay - elapsed
+            if wait_time <= 10.0:
+                time.sleep(wait_time)
+            else:
+                raise FetchError("crawl_delay", datetime.now(UTC) + timedelta(seconds=wait_time))
 
     def fetch(self, url: str, source: SourceConfig, *, etag: str | None = None, modified: str | None = None, binary: bool = False) -> FetchResult:
         current = self._validate(url, source, image=binary)

@@ -18,6 +18,7 @@ class CollectorStore(AbstractContextManager):
         self.db.executescript("""
         CREATE TABLE IF NOT EXISTS work_items(id TEXT PRIMARY KEY, source_id INTEGER NOT NULL, url TEXT NOT NULL, run_id TEXT NOT NULL, state TEXT NOT NULL, stage TEXT NOT NULL, document_json TEXT, html_gzip BLOB, attempts INTEGER NOT NULL DEFAULT 0, next_attempt_at TEXT, error_code TEXT, UNIQUE(source_id,url,state));
         CREATE TABLE IF NOT EXISTS outbox(delivery_id TEXT PRIMARY KEY,item_id TEXT UNIQUE NOT NULL,payload_json TEXT NOT NULL,payload_hash TEXT NOT NULL,receipt_json TEXT,next_attempt_at TEXT,attempts INTEGER NOT NULL DEFAULT 0);
+        CREATE TABLE IF NOT EXISTS archived_outbox(delivery_id TEXT PRIMARY KEY,item_id TEXT NOT NULL,payload_json TEXT NOT NULL,payload_hash TEXT NOT NULL,next_attempt_at TEXT,attempts INTEGER NOT NULL,archived_at TEXT NOT NULL,reason TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS llm_cache(cache_key TEXT PRIMARY KEY,response_json TEXT NOT NULL,created_at TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS budgets(period TEXT PRIMARY KEY,attempts INTEGER NOT NULL);
         CREATE TABLE IF NOT EXISTS source_cache(source_id INTEGER PRIMARY KEY,payload_json TEXT NOT NULL,generated_at TEXT NOT NULL,next_scan_at TEXT,cursor TEXT,last_success_at TEXT);
@@ -70,7 +71,7 @@ class CollectorStore(AbstractContextManager):
                     path = self.db.execute("SELECT data_path FROM local_media WHERE item_id=?", (row[0],)).fetchone()[0]
                     self.db.execute("INSERT OR IGNORE INTO media_outbox(delivery_id,payload_json,data_path,attempts) VALUES(?,?,?,0)", (str(delivery_id), _model(media), path))
     def defer(self,item_id:str,stage:str,code:str,next_attempt_at:datetime)->None:
-        self.db.execute("UPDATE work_items SET state=?,stage=?,attempts=attempts+1,error_code=?,next_attempt_at=? WHERE id=?",("llm_wait" if stage=="llm" else "blocked",stage,code,_dt(next_attempt_at),item_id)); self.db.commit()
+        self.db.execute("UPDATE work_items SET state=?,stage=?,attempts=attempts+1,error_code=?,next_attempt_at=? WHERE id=?",("llm_wait" if stage=="llm" else "deferred",stage,code,_dt(next_attempt_at),item_id)); self.db.commit()
     def retry_item(self, item_id: str, now: datetime) -> bool:
         """Explicitly requeue one deferred item for operator recovery."""
         row = self.db.execute("SELECT id, state, stage FROM work_items WHERE id=?", (item_id,)).fetchone()
@@ -78,11 +79,35 @@ class CollectorStore(AbstractContextManager):
         state = "fetched" if row[2] == "llm" else "discovered" if row[2] == "download" else "ready"
         self.db.execute("UPDATE work_items SET state=?, next_attempt_at=?, error_code=NULL WHERE id=?", (state, _dt(now), item_id))
         self.db.commit(); return True
+    def requeue_model_failures(self, now: datetime) -> int:
+        """Archive unacknowledged failed-model deliveries and retry saved documents."""
+        rows = self.db.execute("""
+            SELECT o.*, w.state, w.stage, w.document_json
+            FROM outbox AS o JOIN work_items AS w ON w.id=o.item_id
+            WHERE o.receipt_json IS NULL AND w.state='ready' AND w.stage='delivery'
+              AND w.document_json IS NOT NULL
+        """).fetchall()
+        count = 0
+        with self.db:
+            for row in rows:
+                delivery = Delivery.model_validate_json(row['payload_json'])
+                if delivery.selection is not None or delivery.model is not None or 'credentials_or_model_unavailable' not in delivery.issues:
+                    continue
+                self.db.execute("""INSERT INTO archived_outbox
+                    (delivery_id,item_id,payload_json,payload_hash,next_attempt_at,attempts,archived_at,reason)
+                    VALUES(?,?,?,?,?,?,?,?)""", (row['delivery_id'],row['item_id'],row['payload_json'],row['payload_hash'],row['next_attempt_at'],row['attempts'],_dt(now),'model_unavailable'))
+                self.db.execute("DELETE FROM outbox WHERE delivery_id=?", (row['delivery_id'],))
+                self.db.execute("UPDATE work_items SET state='fetched',stage='llm',next_attempt_at=?,error_code=NULL WHERE id=?", (_dt(now),row['item_id']))
+                count += 1
+        return count
     def block(self,item_id: str, stage: str, code: str) -> None:
         """A policy denial is visible and never retried automatically."""
         self.db.execute("UPDATE work_items SET state='blocked',stage=?,attempts=attempts+1,error_code=?,next_attempt_at=NULL WHERE id=?", (stage, code, item_id)); self.db.commit()
-    def pending(self,stage:str,now:datetime,limit:int):
-        rows=self.db.execute("SELECT * FROM work_items WHERE stage=? AND state != 'synced' AND (next_attempt_at IS NULL OR next_attempt_at<=?) LIMIT ?",(stage,_dt(now),limit)).fetchall()
+    def pending(self, stage: str, now: datetime, limit: int, source_id: int | None = None):
+        if source_id is not None:
+            rows = self.db.execute("SELECT * FROM work_items WHERE stage=? AND source_id=? AND state NOT IN ('synced', 'blocked') AND (next_attempt_at IS NULL OR next_attempt_at<=?) LIMIT ?", (stage, source_id, _dt(now), limit)).fetchall()
+        else:
+            rows = self.db.execute("SELECT * FROM work_items WHERE stage=? AND state NOT IN ('synced', 'blocked') AND (next_attempt_at IS NULL OR next_attempt_at<=?) LIMIT ?", (stage, _dt(now), limit)).fetchall()
         return [self._item(row) for row in rows]
     def _item(self,row):
         from dataclasses import dataclass
@@ -106,7 +131,12 @@ class CollectorStore(AbstractContextManager):
     def cache_sources(self,sources,generated_at):
         with self.db:
             for source in sources:
-                self.db.execute("INSERT INTO source_cache(source_id,payload_json,generated_at) VALUES(?,?,?) ON CONFLICT(source_id) DO UPDATE SET payload_json=excluded.payload_json,generated_at=excluded.generated_at",(source.id,_model(source),_dt(generated_at)))
+                previous = self.db.execute("SELECT payload_json FROM source_cache WHERE source_id=?", (source.id,)).fetchone()
+                revision_changed = previous is not None and SourceConfig.model_validate_json(previous[0]).revision != source.revision
+                if revision_changed:
+                    self.db.execute("UPDATE source_cache SET payload_json=?,generated_at=?,next_scan_at=NULL,cursor=NULL,last_success_at=NULL WHERE source_id=?", (_model(source),_dt(generated_at),source.id))
+                else:
+                    self.db.execute("INSERT INTO source_cache(source_id,payload_json,generated_at) VALUES(?,?,?) ON CONFLICT(source_id) DO UPDATE SET payload_json=excluded.payload_json,generated_at=excluded.generated_at",(source.id,_model(source),_dt(generated_at)))
     def valid_sources(self,now, ttl_hours: int = 24):
         threshold = _dt(now - timedelta(hours=ttl_hours))
         return [SourceConfig.model_validate_json(row[0]) for row in self.db.execute("SELECT payload_json FROM source_cache WHERE generated_at>=?", (threshold,))]

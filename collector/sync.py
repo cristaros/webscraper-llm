@@ -9,7 +9,11 @@ class SyncClient:
     @property
     def headers(self): return {'Authorization':f'Bearer {self.settings.collector_token.get_secret_value() if self.settings.collector_token else ""}'}
     def sources(self):
-        r=self.client.get(f'{self.settings.api_url}/api/collector/sources',headers=self.headers); r.raise_for_status(); return [SourceConfig.model_validate(x) for x in r.json()]
+        r = self.client.get(f'{self.settings.api_url}/api/collector/sources', headers=self.headers)
+        r.raise_for_status()
+        data = r.json()
+        items = data.get("sources", data) if isinstance(data, dict) else data
+        return [SourceConfig.model_validate(x) for x in items]
     def send(self,delivery:Delivery)->Receipt:
         r=self.client.post(f'{self.settings.api_url}/api/collector/articles',headers=self.headers,json=delivery.model_dump(mode='json')); r.raise_for_status(); return Receipt.model_validate(r.json())
     def report(self,report:RunReport)->None: self.client.put(f'{self.settings.api_url}/api/collector/runs/{report.run_id}',headers=self.headers,json=report.model_dump(mode='json')).raise_for_status()

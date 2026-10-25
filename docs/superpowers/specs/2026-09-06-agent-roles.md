@@ -2,6 +2,8 @@
 
 Estado: especificación de roles para la implementación. No se han iniciado agentes ni tareas productivas al crear este documento.
 
+**Enmienda vigente (2026-10-25):** las menciones de MiniMax en el rol del recolector se sustituyen por el modelo gratuito de extracción `nvidia/nemotron-3.5-super-vl:free`, autorizado por el usuario.
+
 ## Coordinación y reglas comunes
 
 Aplican [AGENTS.md](../../../AGENTS.md), la [especificación](2026-09-06-uninews-python-openrouter.md) y el [plan](../plans/2026-09-06-uninews-python-openrouter.md). Los roles son responsabilidades; pueden ejecutarse con herramientas multiagente o secuencialmente. No requieren modelos distintos ni otras suscripciones.

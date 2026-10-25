@@ -2,6 +2,8 @@
 
 Fecha: 2026-09-06. Estado: diseño propuesto para implementar; no describe funciones ya construidas.
 
+**Enmienda vigente (2026-10-25):** el usuario autorizó cambiar el modelo de extracción a `nvidia/nemotron-3.5-super-vl:free` tras comprobar que `minimax/minimax-m3:free` responde 404. U02 y las menciones históricas de MiniMax en este documento se leen con esa sustitución para el flujo de extracción. El modelo RAG es independiente. Véase el [plan de recuperación local](../plans/2026-10-25-recuperar-extraccion-local.md).
+
 ## Objetivo y acuerdos del usuario
 
 Construir un recolector propio de noticias universitarias en Python, ejecutado automáticamente en una máquina Windows distinta del servidor de la plataforma. El usuario asigna las universidades y sus enlaces de noticias. Python descarga las páginas y MiniMax M3 gratuito, mediante OpenRouter, ayuda a extraer información estructurada. Los resultados se almacenan en una base de datos y se publican en Astro.

@@ -13,26 +13,26 @@ from collector.images import ImageFetcher, find_image_candidates
 from collector.openrouter import LLMDeferred, LLMRejected, MiniMaxExtractor
 from collector.store import CollectorStore
 from collector.sync import SyncClient
-from shared.contracts import Delivery, RunReport, RunSummary
+from shared.contracts import Delivery, FREE_MODEL, RunReport, RunSummary
 from shared.validation import materialize, validate_article
 
 _COUNT_KEYS=('discovered','downloaded','llm_processed','delivered','published','unchanged','pending','failed')
 _BLOCKING_CODES={'robots_denied','destination_host_not_allowed','private_destination','literal_ip_not_allowed','browser_selector_required'}
 
 def process_item(store,item,source,extractor,settings,now):
-    doc=item.document; cached=store.lookup_selection(doc,'minimax/minimax-m3:free','extract-v1')
+    doc=item.document; cached=store.lookup_selection(doc,FREE_MODEL,'extract-v2')
     if cached is None:
         if not store.reserve_llm(now,settings.llm_daily_budget,settings.llm_rpm): store.defer(item.id,'llm','local_budget',now+timedelta(minutes=15)); return
         try: cached=extractor.extract(doc)
         except LLMDeferred as exc: store.defer(item.id,'llm',exc.code,now+timedelta(seconds=exc.retry_after_seconds or 1800)); return
         except LLMRejected as exc:
-            fields=baseline_extract(doc,source); store.save_delivery(item.id,Delivery(delivery_id=uuid4(),run_id=item.run_id,document=doc,selection=None,fields=fields,issues=validate_article(fields,doc,None,source,now)+[exc.code],model=None,image=store.image_for_item(item.id))); return
-        store.cache_selection(doc,'minimax/minimax-m3:free','extract-v1',cached)
-    fields=materialize(doc,cached,source.timezone); store.save_delivery(item.id,Delivery(delivery_id=uuid4(),run_id=item.run_id,document=doc,selection=cached,fields=fields,issues=validate_article(fields,doc,cached,source,now),model='minimax/minimax-m3:free',image=store.image_for_item(item.id)))
+            fields=baseline_extract(doc,source); store.save_delivery(item.id,Delivery(delivery_id=uuid4(),run_id=item.run_id,document=doc,selection=None,fields=fields,issues=validate_article(fields,doc,None,source,now)+[exc.code],model=None,prompt_version='extract-v2',image=store.image_for_item(item.id))); return
+        store.cache_selection(doc,FREE_MODEL,'extract-v2',cached)
+    fields=materialize(doc,cached,source.timezone); store.save_delivery(item.id,Delivery(delivery_id=uuid4(),run_id=item.run_id,document=doc,selection=cached,fields=fields,issues=validate_article(fields,doc,cached,source,now),model=FREE_MODEL,prompt_version='extract-v2',image=store.image_for_item(item.id)))
 
 def _fetch_due(store,source,fetcher,browser,clock,deadline,monotonic,counts):
-    for item in store.pending('download',clock(),source.max_articles):
-        if item.source_id!=source.id or monotonic()>=deadline: continue
+    for item in store.pending('download',clock(),source.max_articles,source_id=source.id):
+        if monotonic()>=deadline: continue
         try:
             result=(browser if source.render_mode=='browser' else fetcher).fetch(item.url,source)
             if result.status==304: store.defer(item.id,'download','not_modified',clock()+timedelta(minutes=source.interval_minutes)); continue
@@ -66,6 +66,7 @@ def _deliver(store,sync,clock,deadline,monotonic,counts):
 
 def run_once(settings,*,clock=lambda:datetime.now(UTC),monotonic=None,http_transport=None)->RunSummary:
     monotonic=monotonic or time.monotonic; started=clock(); deadline=monotonic()+settings.run_budget_seconds; counts={key:0 for key in _COUNT_KEYS}
+    settings.data_dir.mkdir(parents=True, exist_ok=True)
     try:
       with portalocker.Lock(settings.data_dir/'collector.lock',timeout=0):
        with CollectorStore(settings.data_dir/'collector.db') as store, httpx.Client(transport=http_transport,trust_env=False,timeout=httpx.Timeout(30,connect=10)) as client:
@@ -91,8 +92,8 @@ def run_once(settings,*,clock=lambda:datetime.now(UTC),monotonic=None,http_trans
                 try: sync.client.put(f'{settings.api_url}/api/collector/runs/{claim.run_id}/preview',headers=sync.headers,json=preview).raise_for_status()
                 except httpx.HTTPError: pass
             elif not (claim and claim.trigger=='preview'):
-                for item in store.pending('llm',clock(),source.max_articles):
-                    if item.source_id==source.id and monotonic()<deadline: process_item(store,item,source,extractor,settings,clock()); counts['llm_processed']+=1
+                for item in store.pending('llm',clock(),source.max_articles,source_id=source.id):
+                    if monotonic()<deadline: process_item(store,item,source,extractor,settings,clock()); counts['llm_processed']+=1
             if claim:
                 report=RunReport(run_id=claim.run_id,source_id=source.id,trigger=claim.trigger,status='partial' if monotonic()>=deadline else 'success',started_at=started,finished_at=clock(),counts=counts)
                 try: sync.report_claimed(report,claim)

@@ -29,7 +29,8 @@ def inspect_image(data:bytes,min_width:int=300,min_height:int=160)->ImageInfo:
 
 def find_image_candidates(html:str,source:SourceConfig,article_url:str)->list[ImageCandidate]:
     soup=BeautifulSoup(html,'html.parser'); found=[]
-    nodes=list((soup.select_one(source.content_selector) or soup).select('figure img, img'))
+    container = soup.select_one(source.content_selector) if source.content_selector else soup
+    nodes = list((container or soup).select('figure img, img'))
     meta=soup.select_one('meta[property="og:image"]')
     if meta and meta.get('content'): nodes.append(meta)
     for node in nodes:
@@ -51,7 +52,9 @@ def find_image_candidates(html:str,source:SourceConfig,article_url:str)->list[Im
         values=values.get('@graph',[]) if isinstance(values,dict) and '@graph' in values else (values if isinstance(values,list) else [values])
         for value in values:
             if not isinstance(value,dict) or 'NewsArticle' not in str(value.get('@type','')): continue
-            raw=value.get('image'); raw=raw.get('url') if isinstance(raw,dict) else (raw[0] if isinstance(raw,list) else raw)
+            raw=value.get('image')
+            if isinstance(raw,list): raw=raw[0] if raw else None
+            if isinstance(raw,dict): raw=raw.get('url')
             if not isinstance(raw,str): continue
             try: url=normalize_url(raw,article_url)
             except ValueError: continue

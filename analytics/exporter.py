@@ -46,6 +46,7 @@ def prepare_batch(db, output_dir: Path, limit: int = 1000) -> BatchManifest | No
     manifest = BatchManifest(batch_id, [e.event_id for e in events], len(rows), str(ndjson), digest, min(dates), max(dates))
     (folder / "manifest.json").write_text(json.dumps(manifest.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
     # Newer backend schema can claim events; old schema remains replayable via ACK.
+    from models import AnalyticsOutbox
     if hasattr(AnalyticsOutbox, "batch_id"):
         for e in events: e.batch_id = batch_id
         db.commit()

@@ -16,7 +16,8 @@ from pydantic import (
     model_validator,
 )
 
-FREE_MODEL = "minimax/minimax-m3:free"
+FREE_MODEL = "nvidia/nemotron-3.5-super-vl:free"
+LEGACY_FREE_MODEL = "minimax/minimax-m3:free"
 
 Category = Literal[
     "Academia", "Admisión", "Becas", "Cultura", "Deportes", "Empleo", "Género",
@@ -191,7 +192,7 @@ class Delivery(StrictModel):
     selection: Selection | None
     fields: ArticleFields
     issues: list[str]
-    model: Literal[FREE_MODEL] | None
+    model: Literal[FREE_MODEL, LEGACY_FREE_MODEL] | None
     prompt_version: str = "extract-v1"
     image: ImageAsset = Field(default_factory=lambda: ImageAsset(status="not_found"))
 

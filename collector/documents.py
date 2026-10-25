@@ -19,9 +19,10 @@ def build_document(result: FetchResult, source: SourceConfig) -> Document:
     blocks: list[TextBlock] = []
     title = soup.select_one(source.title_selector) or soup.select_one("h1")
     if title and _text(title): blocks.append(TextBlock(id=len(blocks), kind="title", text=_text(title)))
-    date = soup.select_one(source.date_selector) or soup.select_one("time[datetime]")
-    if date and (_text(date) or date.get("datetime")):
-        blocks.append(TextBlock(id=len(blocks), kind="date", text=date.get("datetime") or _text(date)))
+    date = soup.select_one(source.date_selector) or soup.select_one("time[datetime]") or soup.select_one('meta[property="article:published_time"]')
+    date_text = (date.get("datetime") or date.get("content") or _text(date)) if date else ""
+    if date_text:
+        blocks.append(TextBlock(id=len(blocks), kind="date", text=date_text))
     body_ids: list[int] = []
     for node in root.select("p,h2,h3,li,blockquote,figcaption"):
         text = _text(node)

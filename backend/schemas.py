@@ -49,8 +49,8 @@ class NewsResponse(NewsBase):
 
 
 class ChatRequest(BaseModel):
-    question: str
-    news_id: Optional[int] = None
+    question: str = Field(min_length=1, max_length=1000)
+    news_id: Optional[int] = Field(default=None, gt=0)
     history: list = Field(default_factory=list)
 
 

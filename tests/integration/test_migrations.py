@@ -21,12 +21,13 @@ def test_alembic_revisions_upgrade_and_downgrade_sqlite_without_losing_legacy_ne
         db.execute("CREATE TABLE news (id INTEGER PRIMARY KEY, title VARCHAR(255) NOT NULL, summary VARCHAR(500), content TEXT NOT NULL, category VARCHAR(100) NOT NULL, university VARCHAR(200) NOT NULL, author VARCHAR(150), image_url VARCHAR(500), source_url VARCHAR(500), is_featured BOOLEAN, created_at DATETIME, updated_at DATETIME)")
         db.execute("INSERT INTO news(id, title, content, category, university) VALUES (7, 'Preserved', 'Body', 'General', 'U')")
     engine = create_engine("sqlite:///" + path.as_posix())
-    revisions = [importlib.import_module(f"backend.migrations.versions.000{i}_{name}") for i, name in ((1, "legacy_news"), (2, "collection"), (3, "media"), (4, "analytics"))]
+    revisions = [importlib.import_module(f"backend.migrations.versions.000{i}_{name}") for i, name in ((1, "legacy_news"), (2, "collection"), (3, "media"), (4, "analytics"), (5, "news_created_at"))]
     with engine.begin() as connection:
         context = MigrationContext.configure(connection)
         with Operations.context(context):
             for migration in revisions:
                 migration.upgrade()
+            assert connection.exec_driver_sql("SELECT created_at FROM news WHERE id=7").scalar_one() is not None
             for migration in reversed(revisions):
                 migration.downgrade()
         assert connection.exec_driver_sql("SELECT id, title FROM news").one() == (7, "Preserved")

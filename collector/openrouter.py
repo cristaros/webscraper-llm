@@ -1,4 +1,4 @@
-"""Strict OpenRouter client for the one approved zero-price model."""
+"""Strict OpenRouter client for the approved zero-price extraction model."""
 from __future__ import annotations
 import json
 from email.utils import parsedate_to_datetime
@@ -13,7 +13,7 @@ class LLMRejected(RuntimeError):
     def __init__(self,code): super().__init__(code); self.code=code
 
 def extraction_payload(doc:Document,prompt:str)->dict:
-    return {"model":FREE_MODEL,"messages":[{"role":"system","content":prompt},{"role":"user","content":stable_json({"blocks":[b.model_dump() for b in doc.blocks],"expected_body_ids":doc.expected_body_ids})}],"temperature":0,"max_tokens":2048,"response_format":{"type":"json_object"},"provider":{"require_parameters":True,"max_price":{"prompt":0,"completion":0}}}
+    return {"model":FREE_MODEL,"messages":[{"role":"system","content":prompt},{"role":"user","content":stable_json({"blocks":[b.model_dump() for b in doc.blocks],"expected_body_ids":doc.expected_body_ids})}],"temperature":0,"max_tokens":2048,"reasoning":{"enabled":False},"response_format":{"type":"json_object"},"provider":{"require_parameters":True,"max_price":{"prompt":0,"completion":0}}}
 
 class MiniMaxExtractor:
     def __init__(self,settings:CollectorSettings,client:httpx.Client): self.settings,self.client=settings,client
@@ -26,11 +26,11 @@ class MiniMaxExtractor:
         if not found or any(str(found.get('pricing',{}).get(x,'0')) not in {'0','0.0','0.00'} for x in ('prompt','completion')): raise LLMRejected('model_not_free_or_unavailable')
     def extract(self,doc:Document)->Selection:
         try: r=self.client.post(f"{OPENROUTER_API_URL}/chat/completions",headers={"Authorization":f"Bearer {self.settings.openrouter_api_key.get_secret_value() if self.settings.openrouter_api_key else ''}"},json=extraction_payload(doc,self._prompt()),timeout=120)
-        except httpx.TimeoutException as exc: raise LLMDeferred('provider_unavailable',300) from exc
+        except httpx.RequestError as exc: raise LLMDeferred('provider_unavailable',300) from exc
         if r.status_code==429:
             retry=r.headers.get('Retry-After'); seconds=int(retry) if retry and retry.isdigit() else 1800; raise LLMDeferred('quota',seconds)
         if r.status_code>=500: raise LLMDeferred('provider_unavailable',300)
-        if r.status_code in {401,402,403,404}: raise LLMRejected('credentials_or_model_unavailable')
+        if r.status_code in {401,402,403,404}: raise LLMDeferred('credentials_or_model_unavailable',3600)
         if r.status_code>=400: raise LLMRejected('request_rejected')
         try:
             data=r.json(); choice=data['choices'][0]

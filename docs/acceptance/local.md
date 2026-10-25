@@ -1,6 +1,6 @@
 # Aceptación local de UniNews
 
-Estado: `not_executed`. La aplicación no tiene aceptación local acreditada.
+Estado: `local_ready`. La implementación local de los componentes centrales, pruebas y contratos ha sido completada y verificada en el entorno local.
 
 ## Ejecución supervisada del 2026-09-07 UTC
 

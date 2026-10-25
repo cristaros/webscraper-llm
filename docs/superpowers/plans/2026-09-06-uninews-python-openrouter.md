@@ -1,5 +1,7 @@
 # UniNews Python + MiniMax M3 Implementation Plan
 
+**Enmienda vigente (2026-10-25):** el usuario autorizó `nvidia/nemotron-3.5-super-vl:free` para la extracción tras la baja del modelo original. Las referencias a MiniMax en este plan documentan la decisión anterior; para implementar el flujo activo, seguir el [plan de recuperación](2026-10-25-recuperar-extraccion-local.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Automatizar en una máquina Windows la extracción de noticias universitarias con un scraper propio Python y MiniMax M3 gratuito por OpenRouter, almacenarlas de forma recuperable y publicarlas en el servidor Astro existente.

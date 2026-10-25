@@ -23,6 +23,16 @@ def test_keeps_original_body_and_day():
     assert fields.date_precision == "day"
 
 
+def test_iso_publication_date_keeps_year_month_day_order():
+    document, source = _document(), _source()
+    document.blocks[1] = TextBlock(id=1, kind="date", text="2026-10-09")
+    selection = Selection(title_id=0, body_ids=[2], date_id=1, category="Investigación")
+    fields = materialize(document, selection, source.timezone)
+    assert fields.published_on.isoformat() == "2026-10-09"
+    assert fields.original_date_text == "2026-10-09"
+    assert fields.date_precision == "day"
+
+
 def test_missing_date_requires_review():
     document, source = _document(), _source()
     selection = Selection(title_id=0, body_ids=[2], date_id=None, category="Investigación")
